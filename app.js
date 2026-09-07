@@ -15,6 +15,17 @@
     { id: "macro", name: "Macroeconomía", color: 2, goalHours: 2 }
   ];
 
+  var EMOJIS = ["\uD83D\uDCD0", "\uD83D\uDCC8", "\uD83C\uDF0E"]; // 📐 📈 🌎, indexed by subject.color
+
+  // One-time starting point: hours already studied before the Histórico
+  // feature existed. Applied once automatically, then never again — even
+  // after "Borrar histórico" — thanks to the historicalSeeded flag below.
+  var INITIAL_HISTORICAL_SEED = {
+    mat: (2 * 60 + 31) * 60000,   // 2h 31m
+    micro: (2 * 60 + 21) * 60000, // 2h 21m
+    macro: (2 * 60 + 13) * 60000  // 2h 13m
+  };
+
   var ICONS = {
     play: '<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>',
     stop: '<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>',
@@ -26,6 +37,8 @@
   var state = {
     subjects: DEFAULT_SUBJECTS,
     weeklyData: {},
+    historical: {},
+    historicalSeeded: false,
     activeTimer: null,
     editingId: null,
     draftName: "",
@@ -110,10 +123,20 @@
         var parsed = JSON.parse(raw);
         state.subjects = parsed.subjects || DEFAULT_SUBJECTS;
         state.weeklyData = parsed.weeklyData || {};
+        state.historical = parsed.historical || {};
+        state.historicalSeeded = !!parsed.historicalSeeded;
         state.activeTimer = parsed.activeTimer || null;
       }
     } catch (e) {
       // start fresh if storage is corrupted
+    }
+
+    if (!state.historicalSeeded) {
+      Object.keys(INITIAL_HISTORICAL_SEED).forEach(function (id) {
+        state.historical[id] = (state.historical[id] || 0) + INITIAL_HISTORICAL_SEED[id];
+      });
+      state.historicalSeeded = true;
+      save();
     }
   }
 
@@ -122,6 +145,8 @@
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         subjects: state.subjects,
         weeklyData: state.weeklyData,
+        historical: state.historical,
+        historicalSeeded: state.historicalSeeded,
         activeTimer: state.activeTimer
       }));
     } catch (e) {
@@ -147,12 +172,34 @@
 
   function flushActiveTimer(endTs) {
     if (!state.activeTimer) return;
+    var subjectId = state.activeTimer.subjectId;
+    var totalElapsed = endTs - state.activeTimer.startTs;
+
     var splits = splitByWeek(state.activeTimer.startTs, endTs);
     Object.keys(splits).forEach(function (wk) {
       state.weeklyData[wk] = state.weeklyData[wk] || {};
-      state.weeklyData[wk][state.activeTimer.subjectId] =
-        (state.weeklyData[wk][state.activeTimer.subjectId] || 0) + splits[wk];
+      state.weeklyData[wk][subjectId] = (state.weeklyData[wk][subjectId] || 0) + splits[wk];
     });
+
+    // Historical counter: permanent, never split or reset by week.
+    state.historical[subjectId] = (state.historical[subjectId] || 0) + totalElapsed;
+  }
+
+  function historicalMs(subjectId) {
+    var stored = state.historical[subjectId] || 0;
+    var live = state.activeTimer && state.activeTimer.subjectId === subjectId
+      ? (Date.now() - state.activeTimer.startTs) : 0;
+    return stored + live;
+  }
+
+  function clearHistorical() {
+    var confirmed = window.confirm(
+      "\u00bfBorrar el hist\u00f3rico completo? Esta acci\u00f3n no se puede deshacer. Los objetivos y el progreso semanal no se ven afectados."
+    );
+    if (!confirmed) return;
+    state.historical = {};
+    save();
+    render();
   }
 
   function startTimer(subjectId) {
@@ -275,6 +322,16 @@
     );
   }
 
+  function historicalRowTemplate(subject) {
+    var emoji = EMOJIS[subject.color % EMOJIS.length];
+    return (
+      '<div class="history-row">' +
+        '<span>' + emoji + ' ' + escapeHtml(subject.name) + '</span>' +
+        '<span class="val mono">' + formatDuration(historicalMs(subject.id)) + '</span>' +
+      '</div>'
+    );
+  }
+
   function historyRowTemplate(subject) {
     return (
       '<div class="history-row">' +
@@ -287,6 +344,7 @@
   function render() {
     var app = document.getElementById("app");
     var totalMs = state.subjects.reduce(function (sum, s) { return sum + accumulatedMs(s.id); }, 0);
+    var totalHistoricalMs = state.subjects.reduce(function (sum, s) { return sum + historicalMs(s.id); }, 0);
 
     app.innerHTML =
       '<div class="wrap">' +
@@ -304,6 +362,12 @@
           state.subjects.map(historyRowTemplate).join("") +
           '<div class="history-total"><span>Total</span><span class="mono">' + formatDuration(totalMs) + '</span></div>' +
         '</section>' +
+        '<section class="panel">' +
+          '<h3>Hist\u00f3rico</h3>' +
+          state.subjects.map(historicalRowTemplate).join("") +
+          '<div class="history-total"><span>Total</span><span class="mono">' + formatDuration(totalHistoricalMs) + '</span></div>' +
+          '<button class="link-btn" data-action="clear-historical">Borrar hist\u00f3rico</button>' +
+        '</section>' +
       '</div>';
   }
 
@@ -317,6 +381,7 @@
     else if (action === "edit") openEdit(id);
     else if (action === "cancel-edit") cancelEdit();
     else if (action === "save-edit") saveEdit(id);
+    else if (action === "clear-historical") clearHistorical();
   }
 
   function init() {

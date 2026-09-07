@@ -1,4 +1,4 @@
-var CACHE_NAME = "estudio-v1";
+var CACHE_NAME = "estudio-v3";
 var ASSETS = [
   "./",
   "./index.html",

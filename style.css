@@ -360,6 +360,23 @@ header.top .week-range {
   font-weight: 600;
 }
 
+.link-btn {
+  display: block;
+  margin: 14px 0 0;
+  padding: 4px 0;
+  border: none;
+  background: none;
+  color: #9A9990;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: #B0524A;
+  text-decoration: underline;
+}
+
 .loading {
   min-height: 60vh;
   display: flex;
